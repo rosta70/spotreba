@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sledování spotřeby energií</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+            color: #333;
+        }
+        h1, h2, h3 {
+            color: #2c3e50;
+        }
+        .form-container {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        label {
+            display: inline-block;
+            width: 180px;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        input, button, select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            margin: 5px 0;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 10px;
+            border: none;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        button.delete-btn {
+            background-color: #e74c3c;
+        }
+        button.delete-btn:hover {
+            background-color: #c0392b;
+        }
+        button.lock-btn {
+            background-color: #2ecc71;
+        }
+        button.lock-btn:hover {
+            background-color: #27ae60;
+        }
+        button.lock-btn.unlocked {
+            background-color: #f39c12;
+        }
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .year-selector {
+            margin-bottom: 15px;
+        }
+        .charts-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            gap: 20px;
+            margin-top: 30px;
+        }
+        .chart-wrapper {
+            flex: 1 1 45%;
+            min-width: 300px;
+            height: 300px;
+            background-color: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .saved-data {
+            margin-top: 30px;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow-x: auto;
+        }
+        #yearly-totals {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            min-width: 800px;
+        }
+        th, td {
+            padding: 10px;
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        .action-col {
+            width: 60px;
+        }
+        .editable-row {
+            background-color: #fffacd !important;
+        }
+        .editable-row input, .editable-row .diff-input {
+            width: 80px;
+            padding: 4px;
+            border: 1px solid #3498db;
+            border-radius: 3px;
+        }
+        .diff-save-btn {
+            background-color: #2ecc71;
+            padding: 2px 8px;
+            margin-left: 5px;
+        }
+        @media (max-width: 768px) {
+            .form-group {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            label {
+                width: 100%;
+                margin-bottom: 5px;
+            }
+            .chart-wrapper {
+                flex: 1 1 100%;
+            }
+            .action-col {
+                width: 50px;
+            }
+            .editable-row input, .editable-row .diff-input {
+                width: 60px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>Sledování spotřeby energií</h1>
+    
+    <div class="form-container">
+        <h2>Zadat nová data</h2>
+        <div class="form-group">
+            <label for="date">Datum:</label>
+            <input type="date" id="date" required>
+        </div>
+        <div class="form-group">
+            <label for="gas">Plyn (m³):</label>
+            <input type="number" id="gas" step="0.01" min="0">
+        </div>
+        <div class="form-group">
+            <label for="water">Voda (m³):</label>
+            <input type="number" id="water" step="0.01" min="0">
+        </div>
+        <div class="form-group">
+            <label for="elec-low">Elektřina nízký tarif (kWh):</label>
+            <input type="number" id="elec-low" step="0.01 min="0">
+        </div>
+        <div class="form-group">
+            <label for="elec-high">Elektřina vysoký tarif (kWh):</label>
+            <input type="number" id="elec-high" step="0.01" min="0">
+        </div>
+        <div class="buttons">
+            <button id="save-btn">Uložit data</button>
+            <button id="clear-btn">Vyčistit formulář</button>
+            <button id="export-btn">Exportovat data (JSON)</button>
+            <input type="file" id="import-file" accept=".json" style="display: none;">
+            <button id="import-btn">Importovat data</button>
+        </div>
+    </div>
+
+    <div class="controls">
+        <div class="year-selector">
+            <label for="year-select">Filtr roku:</label>
+            <select id="year-select">
+                <option value="all">Všechny roky</option>
+                <!-- Roky se doplní dynamicky -->
+            </select>
+        </div>
+    </div>
+
+    <div class="charts-container">
+        <div class="chart-wrapper">
+            <canvas id="gasChart"></canvas>
+        </div>
+        <div class="chart-wrapper">
+            <canvas id="waterChart"></canvas>
+        </div>
+        <div class="chart-wrapper">
+            <canvas id="elecLowChart"></canvas>
+        </div>
+        <div class="chart-wrapper">
+            <canvas id="elecHighChart"></canvas>
+        </div>
+    </div>
+
+    <div class="saved-data">
+        <h2>Uložená data</h2>
+        <div id="yearly-totals"></div>
+        <table id="saved-data-table">
+            <thead>
+                <tr>
+                    <th class="action-col">Akce</th>
+                    <th>Datum</th>
+                    <th>Plyn (m³)</th>
+                    <th>Voda (m³)</th>
+                    <th>Elektřina NT (kWh)</th>
+                    <th>Elektřina VT (kWh)</th>
+                    <th>Rozdíl plynu</th>
+                    <th>Rozdíl vody</th>
+                    <th>Rozdíl NT</th>
+                    <th>Rozdíl VT</th>
+                </tr>
+            </thead>
+            <tbody id="saved-data-body">
+                <!-- Data se doplní dynamicky -->
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        // Globální proměnné
+        let consumptionData = [];
+        let charts = {
+            gas: null,
+            water: null,
+            elecLow: null,
+            elecHigh: null
+        };
+        let currentlyEditingRow = null;
+        let cachedFilteredData = [];
+        let cachedSelectedYear = '';
+        let saveTimeout = null;
+        let availableYears = [];
+        
+        // Optimalizace: Připravíme si tyto proměnné pro časté dotazy
+        const dateInput = document.getElementById('date');
+        const gasInput = document.getElementById('gas');
+        const waterInput = document.getElementById('water');
+        const elecLowInput = document.getElementById('elec-low');
+        const elecHighInput = document.getElementById('elec-high');
+        const yearSelect = document.getElementById('year-select');
+        const savedDataBody = document.getElementById('saved-data-body');
+        const yearlyTotalsDiv = document.getElementById('yearly-totals');
+
+        // Inicializace aplikace
+        document.addEventListener('DOMContentLoaded', () => {
+            loadData();
+            setupEventListeners();
+            
+            // Nastavíme dnešní datum jako výchozí
+            const today = new Date().toISOString().split('T')[0];
+            dateInput.value = today;
+        });
+
+        function init() {
+            updateYearSelector();
+            updateSavedDataTable();
+            updateCharts();
+            displayYearlyTotals();
+            
+            // Diagnostika výkonu
+            if (consumptionData.length > 100) {
+                measureFilterPerformance();
+            }
+        }
+
+        function setupEventListeners() {
+            document.getElementById('save-btn').addEventListener('click', saveData);
+            document.getElementById('clear-btn').addEventListener('click', clearForm);
+            document.getElementById('export-btn').addEventListener('click', exportData);
+            document.getElementById('import-btn').addEventListener('click', () => {
+                document.getElementById('import-file').click();
+            });
+            document.getElementById('import-file').addEventListener('change', importData);
+        }
+
+        function loadData() {
+            const savedData = localStorage.getItem('consumptionData');
+            if (savedData) {
+                try {
+                    // Parse a uložení dat
+                    consumptionData = JSON.parse(savedData);
+                    availableYears = [...new Set(consumptionData.map(item => item.date.split('-')[0]))];
+                    
+                    // Výpočet rozdílů
+                    calculateDifferences();
+                    
+                    // Seřazení od nejnovějších
+                    sortDataByDateDesc();
+                    
+                    // Inicializace UI
+                    init();
+                } catch (error) {
+                    console.error('Chyba při načítání dat:', error);
+                    consumptionData = [];
+                }
+            } else {
+                consumptionData = [];
+            }
+        }
+
+        function saveDataToStorage() {
+            if (saveTimeout) {
+                clearTimeout(saveTimeout);
+            }
+            
+            // Ukládáme s throttlingem (maximálně 1x za sekundu)
+            saveTimeout = setTimeout(() => {
+                localStorage.setItem('consumptionData', JSON.stringify(consumptionData));
+                saveTimeout = null;
+            }, 1000);
+        }
+
+        function sortDataByDateDesc() {
+            consumptionData.sort((a, b) => new Date(b.date) - new Date(a.date));
+        }
+
+        function calculateDifferences() {
+            if (consumptionData.length < 2) return;
+            
+            // Pro výpočet potřebujeme data od nejstaršího
+            const sortedData = [...consumptionData].sort((a, b) => new Date(a.date) - new Date(b.date));
+            
+            // Optimalizace: použijeme klasický for loop (rychlejší než forEach)
+            for (let i = 1, len = sortedData.length; i < len; i++) {
+                const prev = sortedData[i - 1];
+                const current = sortedData[i];
+                
+                if (current.gasDiff === undefined) current.gasDiff = (current.gas - prev.gas) || 0;
+                if (current.waterDiff === undefined) current.waterDiff = (current.water - prev.water) || 0;
+                if (current.elecLowDiff === undefined) current.elecLowDiff = (current.elecLow - prev.elecLow) || 0;
+                if (current.elecHighDiff === undefined) current.elecHighDiff = (current.elecHigh - prev.elecHigh) || 0;
+            }
+            
+            // Aktualizujeme původní data (která jsou seřazená od nejnovějších)
+            const dateMap = new Map(sortedData.map(item => [item.date, item]));
+            consumptionData.forEach(item => {
+                const updatedItem = dateMap.get(item.date);
+                if (updatedItem) {
+                    if (updatedItem.gasDiff !== undefined) item.gasDiff = updatedItem.gasDiff;
+                    if (updatedItem.waterDiff !== undefined) item.waterDiff = updatedItem.waterDiff;
+                    if (updatedItem.elecLowDiff !== undefined) item.elecLowDiff = updatedItem.elecLowDiff;
+                    if (updatedItem.elecHighDiff !== undefined) item.elecHighDiff = updatedItem.elecHighDiff;
+                }
+            });
+        }
+
+        function updateYearSelector() {
+            yearSelect.innerHTML = '<option value="all">Všechny roky</option>';
+            
+            // Přidáme roky sestupně
+            availableYears.sort().reverse().forEach(year => {
+                yearSelect.innerHTML += `<option value="${year}">${year}</option>`;
+            });
+
+            yearSelect.addEventListener('change', () => {
+                updateSavedDataTable();
+                updateCharts();
+                displayYearlyTotals();
+            });
+        }
+
+        function updateSavedDataTable() {
+            const selectedYear = yearSelect.value;
+            
+            // Použij cache pokud se rok nezměnil
+            if (cachedSelectedYear === selectedYear) {
+                renderTable(cachedFilteredData);
+                return;
+            }
+            
+            // Filtruj pouze když se změnil rok
+            const startTime = performance.now();
+            
+            cachedFilteredData = selectedYear === 'all' 
+                ? [...consumptionData] 
+                : consumptionData.filter(item => item.date.startsWith(selectedYear));
+            
+            cachedSelectedYear = selectedYear;
+            renderTable(cachedFilteredData);
+            
+            console.log(`Filtrace trvala: ${performance.now() - startTime}ms`);
+        }
+
+        function renderTable(data) {
+            // Optimalizace: použij DocumentFragment pro minimalizaci reflow
+            const fragment = document.createDocumentFragment();
+            
+            // Optimalizace: předpřipravíme šablonu HTML
+            data.forEach((item, index) => {
+                const row = document.createElement('tr');
+                row.setAttribute('data-index', index);
+                row.innerHTML = `
+                    <td class="action-col">
+                        <button class="lock-btn" data-index="${index}">🔒</button>
+                        <button class="delete-btn" data-index="${index}">🗑️</button>
+                    </td>
+                    <td class="date-cell">${item.date}</td>
+                    <td class="gas-cell">${item.gas?.toFixed(2) ?? '-'}</td>
+                    <td class="water-cell">${item.water?.toFixed(2) ?? '-'}</td>
+                    <td class="elecLow-cell">${item.elecLow?.toFixed(2) ?? '-'}</td>
+                    <td class="elecHigh-cell">${item.elecHigh?.toFixed(2) ?? '-'}</td>
+                    <td class="gasDiff-cell">${item.gasDiff?.toFixed(2) ?? '-'}</td>
+                    <td class="waterDiff-cell">${item.waterDiff?.toFixed(2) ?? '-'}</td>
+                    <td class="elecLowDiff-cell">${item.elecLowDiff?.toFixed(2) ?? '-'}</td>
+                    <td class="elecHighDiff-cell">${item.elecHighDiff?.toFixed(2) ?? '-'}</td>
+                `;
+                fragment.appendChild(row);
+            });
+            
+            // Vyměníme obsah najednou
+            savedDataBody.innerHTML = '';
+            savedDataBody.appendChild(fragment);
+            
+            // Event listenery přidáme najednou po renderování
+            savedDataBody.querySelectorAll('.lock-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const index = e.target.getAttribute('data-index');
+                    toggleEditMode(index, e.target);
+                });
+            });
+            
+            savedDataBody.querySelectorAll('.delete-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const index = e.target.getAttribute('data-index');
+                    deleteData(index);
+                });
+            });
+        }
+
+        function toggleEditMode(index, button) {
+            const row = savedDataBody.querySelector(`tr[data-index="${index}"]`);
+            
+            if (currentlyEditingRow !== null && currentlyEditingRow !== index) {
+                // Uložíme předchozí editaci
+                saveRowEdit(currentlyEditingRow);
+                // Vypneme editaci předchozího řádku
+                disableEditMode(currentlyEditingRow);
+            }
+            
+            if (button.textContent === '🔒') {
+                // Zapnutí editace
+                button.textContent = '🔓';
+                button.classList.add('unlocked');
+                row.classList.add('editable-row');
+                
+                // Nahradíme buňky inputy s aktuálními hodnotami
+                const item = cachedFilteredData[index];
+                
+                row.querySelector('.date-cell').innerHTML = 
+                    `<input type="date" value="${item.date}" class="date-input">`;
+                
+                row.querySelector('.gas-cell').innerHTML = 
+                    `<input type="number" step="0.01" value="${item.gas || 0}" class="gas-input">`;
+                
+                row.querySelector('.water-cell').innerHTML = 
+                    `<input type="number" step="0.01" value="${item.water || 0}" class="water-input">`;
+                
+                row.querySelector('.elecLow-cell').innerHTML = 
+                    `<input type="number" step="0.01" value="${item.elecLow || 0}" class="elecLow-input">`;
+                
+                row.querySelector('.elecHigh-cell').innerHTML = 
+                    `<input type="number" step="0.01" value="${item.elecHigh || 0}" class="elecHigh-input">`;
+                
+                row.querySelector('.gasDiff-cell').innerHTML = 
+                    `<input type="number" step="0.01" value="${item.gasDiff || 0}" class="diff-input">`;
+                
+                row.querySelector('.waterDiff-cell').innerHTML = 
+                    `<input type="number" step="0.01" value="${item.waterDiff || 0}" class="diff-input">`;
+                
+                row.querySelector('.elecLowDiff-cell').innerHTML = 
+                    `<input type="number" step="0.01" value="${item.elecLowDiff || 0}" class="diff-input">`;
+                
+                row.querySelector('.elecHighDiff-cell').innerHTML = 
+                    `<input type="number" step="0.01" value="${item.elecHighDiff || 0}" class="diff-input">`;
+                
+                currentlyEditingRow = index;
+            } else {
+                // Vypnutí editace a uložení
+                saveRowEdit(index);
+                disableEditMode(index);
+                currentlyEditingRow = null;
+            }
+        }
+
+        function saveRowEdit(index) {
+            const row = savedDataBody.querySelector(`tr[data-index="${index}"]`);
+            if (!row) return;
+            
+            const updatedItem = {
+                date: row.querySelector('.date-input').value,
+                gas: parseFloat(row.querySelector('.gas-input').value) || 0,
+                water: parseFloat(row.querySelector('.water-input').value) || 0,
+                elecLow: parseFloat(row.querySelector('.elecLow-input').value) || 0,
+                elecHigh: parseFloat(row.querySelector('.elecHigh-input').value) || 0,
+                gasDiff: parseFloat(row.querySelector('.gasDiff-cell input').value) || 0,
+                waterDiff: parseFloat(row.querySelector('.waterDiff-cell input').value) || 0,
+                elecLowDiff: parseFloat(row.querySelector('.elecLowDiff-cell input').value) || 0,
+                elecHighDiff: parseFloat(row.querySelector('.elecHighDiff-cell input').value) || 0
+            };
+            
+            // Najdeme původní záznam v hlavním datasetu
+            const originalIndex = consumptionData.findIndex(item => 
+                item.date === cachedFilteredData[index].date);
+            
+            if (originalIndex !== -1) {
+                consumptionData[originalIndex] = updatedItem;
+                // Aktualizovat i cache
+                cachedFilteredData[index] = updatedItem;
+                
+                sortDataByDateDesc();
+                saveDataToStorage();
+                updateSavedDataTable();
+                updateCharts();
+                displayYearlyTotals();
+            }
+        }
+
+        function disableEditMode(index) {
+            const row = savedDataBody.querySelector(`tr[data-index="${index}"]`);
+            if (!row) return;
+            
+            row.classList.remove('editable-row');
+            const button = row.querySelector('.lock-btn');
+            if (button) {
+                button.textContent = '🔒';
+                button.classList.remove('unlocked');
+            }
+        }
+
+        function displayYearlyTotals() {
+            const sums = calculateYearlySums();
+            const selectedYear = yearSelect.value;
+
+            yearlyTotalsDiv.innerHTML = '<h3>Roční součty</h3>';
+            
+            if (selectedYear === 'all') {
+                // Zobrazujeme roky sestupně
+                Object.keys(sums).sort().reverse().forEach(year => {
+                    yearlyTotalsDiv.innerHTML += `
+                        <p>
+                            <strong>${year}:</strong> 
+                            Plyn: ${sums[year].gas.toFixed(2)} m³ | 
+                            Voda: ${sums[year].water.toFixed(2)} m³ | 
+                            Elektřina (NT): ${sums[year].elecLow.toFixed(2)} kWh | 
+                            Elektřina (VT): ${sums[year].elecHigh.toFixed(2)} kWh |
+                            <strong>Celkem: ${sums[year].elecTotal.toFixed(2)} kWh</strong>
+                        </p>
+                    `;
+                });
+            } else if (sums[selectedYear]) {
+                yearlyTotalsDiv.innerHTML += `
+                    <p>
+                        <strong>${selectedYear}:</strong> 
+                        Plyn: ${sums[selectedYear].gas.toFixed(2)} m³ | 
+                        Voda: ${sums[selectedYear].water.toFixed(2)} m³ | 
+                        Elektřina (NT): ${sums[selectedYear].elecLow.toFixed(2)} kWh | 
+                        Elektřina (VT): ${sums[selectedYear].elecHigh.toFixed(2)} kWh |
+                        <strong>Celkem: ${sums[selectedYear].elecTotal.toFixed(2)} kWh</strong>
+                    </p>
+                `;
+            } else {
+                yearlyTotalsDiv.innerHTML += '<p>Pro vybraný rok nejsou data.</p>';
+            }
+        }
+
+        function calculateYearlySums() {
+            const yearlySums = {};
+            
+            // Pro výpočet potřebujeme data od nejstarších
+            const sortedData = [...consumptionData].sort((a, b) => new Date(a.date) - new Date(b.date));
+            
+            sortedData.forEach(item => {
+                if (item.gasDiff === undefined && item.waterDiff === undefined && 
+                    item.elecLowDiff === undefined && item.elecHighDiff === undefined) return;
+                
+                const year = item.date.split('-')[0];
+                if (!yearlySums[year]) {
+                    yearlySums[year] = { 
+                        gas: 0, 
+                        water: 0, 
+                        elecLow: 0, 
+                        elecHigh: 0, 
+                        elecTotal: 0 
+                    };
+                }
+                
+                yearlySums[year].gas += item.gasDiff || 0;
+                yearlySums[year].water += item.waterDiff || 0;
+                yearlySums[year].elecLow += item.elecLowDiff || 0;
+                yearlySums[year].elecHigh += item.elecHighDiff || 0;
+                yearlySums[year].elecTotal += (item.elecLowDiff || 0) + (item.elecHighDiff || 0);
+            });
+            
+            return yearlySums;
+        }
+
+        function updateCharts() {
+            const selectedYear = yearSelect.value;
+            
+            let filteredData = [...consumptionData];
+            if (selectedYear !== 'all') {
+                filteredData = filteredData.filter(item => item.date.startsWith(selectedYear));
+            }
+            
+            // Pro grafy potřebujeme seřadit data od nejstaršího
+            const sortedData = [...filteredData].sort((a, b) => new Date(a.date) - new Date(b.date));
+            
+            // Příprava dat pro grafy
+            const labels = sortedData.map(item => item.date);
+            const gasData = sortedData.map(item => item.gasDiff || 0);
+            const waterData = sortedData.map(item => item.waterDiff || 0);
+            const elecLowData = sortedData.map(item => item.elecLowDiff || 0);
+            const elecHighData = sortedData.map(item => item.elecHighDiff || 0);
+            
+            // Aktualizace nebo vytvoření grafů
+            updateChart('gasChart', 'Plyn (m³)', labels, gasData, '#e74c3c');
+            updateChart('waterChart', 'Voda (m³)', labels, waterData, '#3498db');
+            updateChart('elecLowChart', 'Elektřina NT (kWh)', labels, elecLowData, '#f1c40f');
+            updateChart('elecHighChart', 'Elektřina VT (kWh)', labels, elecHighData, '#e67e22');
+        }
+
+        function updateChart(canvasId, label, labels, data, color) {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            
+            if (charts[canvasId]) {
+                charts[canvasId].destroy();
+            }
+            
+            charts[canvasId] = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: label,
+                        data: data,
+                        backgroundColor: color,
+                        borderColor: color,
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: label
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Datum'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function saveData() {
+            const date = dateInput.value;
+            const gas = parseFloat(gasInput.value) || 0;
+            const water = parseFloat(waterInput.value) || 0;
+            const elecLow = parseFloat(elecLowInput.value) || 0;
+            const elecHigh = parseFloat(elecHighInput.value) || 0;
+            
+            if (!date) {
+                alert('Prosím zadejte datum!');
+                return;
+            }
+            
+            const newEntry = {
+                date,
+                gas,
+                water,
+                elecLow,
+                elecHigh
+            };
+            
+            consumptionData.push(newEntry);
+            calculateDifferences();
+            sortDataByDateDesc();
+            saveDataToStorage();
+            updateYearSelector();
+            updateSavedDataTable();
+            updateCharts();
+            displayYearlyTotals();
+            clearForm();
+        }
+
+        function deleteData(index) {
+            if (confirm('Opravdu chcete smazat tento záznam?')) {
+                if (currentlyEditingRow === index) {
+                    currentlyEditingRow = null;
+                }
+                
+                // Najdeme původní záznam v hlavním datasetu
+                const dateToDelete = cachedFilteredData[index].date;
+                const originalIndex = consumptionData.findIndex(item => item.date === dateToDelete);
+                
+                if (originalIndex !== -1) {
+                    consumptionData.splice(originalIndex, 1);
+                    sortDataByDateDesc();
+                    saveDataToStorage();
+                    updateYearSelector();
+                    updateSavedDataTable();
+                    updateCharts();
+                    displayYearlyTotals();
+                }
+            }
+        }
+
+        function clearForm() {
+            // Nastavíme dnešní datum jako výchozí
+            const today = new Date().toISOString().split('T')[0];
+            dateInput.value = today;
+            gasInput.value = '';
+            waterInput.value = '';
+            elecLowInput.value = '';
+            elecHighInput.value = '';
+        }
+
+        function exportData() {
+            const dataStr = JSON.stringify(consumptionData, null, 2);
+            const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
+            
+            const exportFileDefaultName = `spotreba-energii_${new Date().toISOString().split('T')[0]}.json`;
+            
+            const linkElement = document.createElement('a');
+            linkElement.setAttribute('href', dataUri);
+            linkElement.setAttribute('download', exportFileDefaultName);
+            linkElement.click();
+        }
+
+        function importData(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const importedData = JSON.parse(e.target.result);
+                    if (Array.isArray(importedData)) {
+                        consumptionData = importedData;
+                        availableYears = [...new Set(consumptionData.map(item => item.date.split('-')[0]))];
+                        calculateDifferences();
+                        sortDataByDateDesc();
+                        saveDataToStorage();
+                        updateYearSelector();
+                        updateSavedDataTable();
+                        updateCharts();
+                        displayYearlyTotals();
+                        alert('Data úspěšně importována!');
+                    } else {
+                        alert('Neplatný formát dat!');
+                    }
+                } catch (error) {
+                    alert('Chyba při čtení souboru: ' + error.message);
+                }
+                event.target.value = ''; // Reset file input
+            };
+            reader.readAsText(file);
+        }
+
+        // Diagnostické funkce
+        function measureFilterPerformance() {
+            const years = ['all', ...availableYears];
+            console.group('Výkonnostní test filtrace');
+            years.forEach(year => {
+                const start = performance.now();
+                const filtered = year === 'all' 
+                    ? [...consumptionData] 
+                    : consumptionData.filter(item => item.date.startsWith(year));
+                console.log(`Filtrace ${year}: ${filtered.length} záznamů za ${(performance.now() - start).toFixed(2)}ms`);
+            });
+            console.groupEnd();
+        }
+    </script>
+</body>
+</html>
