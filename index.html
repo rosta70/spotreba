@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sledování spotřeby energií</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+            color: #333;
+        }
+        h1, h2, h3 {
+            color: #2c3e50;
+        }
+        .form-container {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        label {
+            display: inline-block;
+            width: 180px;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        input, button, select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            margin: 5px 0;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 10px;
+            border: none;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        button:disabled {
+            background-color: #95a5a6;
+            cursor: not-allowed;
+        }
+        .buttons {
+            margin-top: 20px;
+            display: flex;
+            flex-wrap: wrap;
+        }
+        #charts-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .chart-wrapper {
+            flex: 1 1 100%;
+        }
+        .action-col {
+            width: 150px;
+        }
+        .editable-row input, .editable-row .diff-input {
+            width: 60px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        .error-message {
+            color: #e74c3c;
+            margin-top: 10px;
+            font-weight: bold;
+        }
+        .edit-btn, .delete-btn, .reset-btn {
+            padding: 5px 8px;
+            font-size: 12px;
+            margin: 2px;
+        }
+        .edit-btn {
+            background-color: #2ecc71;
+        }
+        .delete-btn {
+            background-color: #e74c3c;
+        }
+        .reset-btn {
+            background-color: #9b59b6;
+        }
+        .reset-point {
+            background-color: #f39c12;
+        }
+        .unlocked {
+            background-color: #f39c12;
+        }
+        .editable-row {
+            background-color: #fffde7;
+        }
+        .editable-row input {
+            border: 1px solid #ddd;
+            padding: 5px;
+        }
+        .hidden {
+            display: none;
+        }
+        .year-filter {
+            margin: 15px 0;
+        }
+        .diff-cell {
+            background-color: #f5f5f5;
+        }
+        .reset-info {
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #fffde7;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Sledování spotřeby energií</h1>
+    
+    <div class="form-container">
+        <h2>Zadat nová data</h2>
+        <div class="form-group">
+            <label for="date">Datum:</label>
+            <input type="date" id="date" required>
+        </div>
+        <div class="form-group">
+            <label for="gas">Plyn (m³):</label>
+            <input type="number" id="gas" step="0.01" min="0">
+        </div>
+        <div class="form-group">
+            <label for="water">Voda (m³):</label>
+            <input type="number" id="water" step="0.01" min="0">
+        </div>
+        <div class="form-group">
+            <label for="elec-low">Elektřina nízký tarif (kWh):</label>
+            <input type="number" id="elec-low" step="0.01" min="0">
+        </div>
+        <div class="form-group">
+            <label for="elec-high">Elektřina vysoký tarif (kWh):</label>
+            <input type="number" id="elec-high" step="0.01" min="0">
+        </div>
+        <div class="buttons">
+            <button id="save-btn">Uložit data</button>
+            <button id="clear-btn">Vyčistit formulář</button>
+            <button id="export-btn">Exportovat data (JSON)</button>
+            <button id="import-btn">Importovat data</button>
+            <input type="file" id="import-file" accept=".json" class="hidden">
+        </div>
+        <div id="error-message" class="error-message"></div>
+    </div>
+
+    <div class="saved-data">
+        <h2>Uložená data</h2>
+        <div class="year-filter">
+            <label for="year-select">Filtr podle roku:</label>
+            <select id="year-select">
+                <option value="all">Všechny roky</option>
+            </select>
+        </div>
+        <div class="reset-info">
+            <strong>Resetovací body:</strong> Označte měsíc, kdy došlo k výměně měřidla. 
+            Klikněte na "<span style="background-color: #9b59b6; color: white; padding: 2px 5px; border-radius: 3px;">＋ Reset</span>" pro nastavení resetu. 
+            "<span style="background-color: #f39c12; color: white; padding: 2px 5px; border-radius: 3px;">✖ Reset</span>" označuje již nastavené resetovací body.
+        </div>
+        <div id="yearly-totals"></div>
+        <div class="table-container">
+            <table id="saved-data-table">
+                <thead>
+                    <tr>
+                        <th class="action-col">Akce</th>
+                        <th>Datum</th>
+                        <th>Plyn (m³)</th>
+                        <th>Voda (m³)</th>
+                        <th>Elektřina NT (kWh)</th>
+                        <th>Elektřina VT (kWh)</th>
+                        <th>Rozdíl plynu</th>
+                        <th>Rozdíl vody</th>
+                        <th>Rozdíl NT</th>
+                        <th>Rozdíl VT</th>
+                    </tr>
+                </thead>
+                <tbody id="saved-data-body">
+                    <!-- Data se doplní dynamicky -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let consumptionData = [];
+        let availableYears = [];
+        let saveTimeout = null;
+        let charts = {};
+        let cachedFilteredData = [];
+        let cachedSelectedYear = 'all';
+        let currentlyEditingRow = null;
+        let resetPoints = {};
+
+        document.addEventListener('DOMContentLoaded', function() {
+            loadData();
+            setupEventListeners();
+            
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('date').value = today;
+        });
+
+        function loadData() {
+            const savedData = localStorage.getItem('consumptionData');
+            const savedResetPoints = localStorage.getItem('resetPoints');
+            
+            if (savedData) {
+                try {
+                    const parsedData = JSON.parse(savedData);
+                    consumptionData = parsedData.map(item => {
+                        return item.id ? item : {...item, id: Date.now() + Math.floor(Math.random() * 1000)};
+                    });
+                    resetPoints = savedResetPoints ? JSON.parse(savedResetPoints) : {};
+                    updateAvailableYears();
+                    calculateDifferences();
+                    sortDataByDateDesc();
+                    init();
+                } catch (error) {
+                    console.error('Chyba při načítání dat:', error);
+                    consumptionData = [];
+                    resetPoints = {};
+                }
+            }
+        }
+
+        function updateAvailableYears() {
+            availableYears = [...new Set(consumptionData.map(item => item.date.split('-')[0]))].sort().reverse();
+            updateYearSelector();
+        }
+
+        function updateYearSelector() {
+            const yearSelect = document.getElementById('year-select');
+            yearSelect.innerHTML = '<option value="all">Všechny roky</option>';
+            availableYears.forEach(year => {
+                const option = document.createElement('option');
+                option.value = year;
+                option.textContent = year;
+                yearSelect.appendChild(option);
+            });
+            yearSelect.value = cachedSelectedYear;
+        }
+
+        function saveDataToStorage() {
+            if (saveTimeout) {
+                clearTimeout(saveTimeout);
+            }
+            saveTimeout = setTimeout(() => {
+                localStorage.setItem('consumptionData', JSON.stringify(consumptionData));
+                localStorage.setItem('resetPoints', JSON.stringify(resetPoints));
+                saveTimeout = null;
+            }, 1000);
+        }
+
+        function sortDataByDateDesc() {
+            consumptionData.sort((a, b) => new Date(b.date) - new Date(a.date));
+        }
+
+        function setupEventListeners() {
+            document.getElementById('save-btn').addEventListener('click', saveData);
+            document.getElementById('clear-btn').addEventListener('click', clearForm);
+            document.getElementById('export-btn').addEventListener('click', exportData);
+            document.getElementById('import-btn').addEventListener('click', triggerImport);
+            document.getElementById('import-file').addEventListener('change', importData);
+            document.getElementById('year-select').addEventListener('change', function() {
+                cachedSelectedYear = this.value;
+                updateSavedDataTable();
+                updateCharts();
+                displayYearlyTotals();
+            });
+        }
+
+        function triggerImport() {
+            document.getElementById('import-file').click();
+        }
+
+        function saveData() {
+            const dateInput = document.getElementById('date');
+            const gasInput = document.getElementById('gas');
+            const waterInput = document.getElementById('water');
+            const elecLowInput = document.getElementById('elec-low');
+            const elecHighInput = document.getElementById('elec-high');
+            
+            const date = dateInput.value;
+            const gas = parseFloat(gasInput.value) || 0;
+            const water = parseFloat(waterInput.value) || 0;
+            const elecLow = parseFloat(elecLowInput.value) || 0;
+            const elecHigh = parseFloat(elecHighInput.value) || 0;
+
+            if (!date) {
+                document.getElementById('error-message').textContent = 'Datum je povinné pole.';
+                return;
+            }
+
+            const yearMonth = date.substring(0, 7);
+            const hasDuplicate = consumptionData.some(item => item.date.startsWith(yearMonth));
+            
+            if (hasDuplicate) {
+                document.getElementById('error-message').textContent = 'Pro tento měsíc již existuje záznam.';
+                return;
+            }
+            
+            document.getElementById('error-message').textContent = '';
+
+            const newEntry = {
+                id: Date.now(),
+                date,
+                gas,
+                water,
+                elecLow,
+                elecHigh,
+                gasDiff: 0,
+                waterDiff: 0,
+                elecLowDiff: 0,
+                elecHighDiff: 0
+            };
+
+            consumptionData.push(newEntry);
+            updateAvailableYears();
+            calculateDifferences();
+            sortDataByDateDesc();
+            saveDataToStorage();
+            updateSavedDataTable();
+            updateCharts();
+            displayYearlyTotals();
+            clearForm();
+        }
+
+        function calculateDifferences() {
+            if (consumptionData.length < 1) return;
+
+            const sortedData = [...consumptionData].sort((a, b) => new Date(a.date) - new Date(b.date));
+            
+            for (let i = 0; i < sortedData.length; i++) {
+                const current = sortedData[i];
+                const dateKey = current.date.substring(0, 7);
+                
+                if (resetPoints[dateKey]) {
+                    current.gasDiff = 0;
+                    current.waterDiff = 0;
+                    current.elecLowDiff = 0;
+                    current.elecHighDiff = 0;
+                    continue;
+                }
+                
+                if (i === 0) continue;
+                
+                const previous = sortedData[i - 1];
+                const prevDateKey = previous.date.substring(0, 7);
+                
+                if (!resetPoints[prevDateKey]) {
+                    if (!current.gasDiff || current.gasDiff === 0) {
+                        current.gasDiff = (current.gas - previous.gas).toFixed(2);
+                    }
+                    if (!current.waterDiff || current.waterDiff === 0) {
+                        current.waterDiff = (current.water - previous.water).toFixed(2);
+                    }
+                    if (!current.elecLowDiff || current.elecLowDiff === 0) {
+                        current.elecLowDiff = (current.elecLow - previous.elecLow).toFixed(2);
+                    }
+                    if (!current.elecHighDiff || current.elecHighDiff === 0) {
+                        current.elecHighDiff = (current.elecHigh - previous.elecHigh).toFixed(2);
+                    }
+                }
+            }
+        }
+
+        function addResetPoint(date) {
+            const dateKey = date.substring(0, 7);
+            resetPoints[dateKey] = true;
+            saveDataToStorage();
+            calculateDifferences();
+            updateSavedDataTable();
+            updateCharts();
+            displayYearlyTotals();
+        }
+
+        function removeResetPoint(date) {
+            const dateKey = date.substring(0, 7);
+            delete resetPoints[dateKey];
+            saveDataToStorage();
+            calculateDifferences();
+            updateSavedDataTable();
+            updateCharts();
+            displayYearlyTotals();
+        }
+
+        function updateSavedDataTable() {
+            const tableBody = document.getElementById('saved-data-body');
+            tableBody.innerHTML = '';
+
+            cachedFilteredData = cachedSelectedYear === 'all' 
+                ? [...consumptionData] 
+                : consumptionData.filter(item => item.date.startsWith(cachedSelectedYear));
+
+            cachedFilteredData.forEach((entry, index) => {
+                const row = document.createElement('tr');
+                row.dataset.index = index;
+                const dateKey = entry.date.substring(0, 7);
+                const isResetPoint = resetPoints[dateKey];
+                
+                row.innerHTML = `
+                    <td class="action-col">
+                        <button class="edit-btn" data-index="${index}">🔒</button>
+                        <button class="delete-btn" data-index="${index}">Smazat</button>
+                        <button class="reset-btn ${isResetPoint ? 'reset-point' : ''}" data-index="${index}">
+                            ${isResetPoint ? '✖ Reset' : '＋ Reset'}
+                        </button>
+                    </td>
+                    <td class="date-cell">${entry.date}</td>
+                    <td class="gas-cell">${entry.gas}</td>
+                    <td class="water-cell">${entry.water}</td>
+                    <td class="elecLow-cell">${entry.elecLow}</td>
+                    <td class="elecHigh-cell">${entry.elecHigh}</td>
+                    <td class="gasDiff-cell diff-cell">${entry.gasDiff || '-'}</td>
+                    <td class="waterDiff-cell diff-cell">${entry.waterDiff || '-'}</td>
+                    <td class="elecLowDiff-cell diff-cell">${entry.elecLowDiff || '-'}</td>
+                    <td class="elecHighDiff-cell diff-cell">${entry.elecHighDiff || '-'}</td>
+                `;
+
+                tableBody.appendChild(row);
+            });
+
+            document.querySelectorAll('.delete-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    deleteData(parseInt(this.getAttribute('data-index')));
+                });
+            });
+
+            document.querySelectorAll('.edit-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    toggleEditMode(parseInt(this.getAttribute('data-index')), this);
+                });
+            });
+
+            document.querySelectorAll('.reset-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const index = parseInt(this.getAttribute('data-index'));
+                    const date = cachedFilteredData[index].date;
+                    const dateKey = date.substring(0, 7);
+                    
+                    if (resetPoints[dateKey]) {
+                        if (confirm('Opravdu chcete odebrat resetovací bod pro tento měsíc?')) {
+                            removeResetPoint(date);
+                        }
+                    } else {
+                        if (confirm('Nastavit tento měsíc jako resetovací bod (výměna měřidla)?')) {
+                            addResetPoint(date);
+                        }
+                    }
+                });
+            });
+        }
+
+        function deleteData(index) {
+            if (confirm('Opravdu chcete smazat tento záznam?')) {
+                if (currentlyEditingRow === index) {
+                    currentlyEditingRow = null;
+                }
+                
+                const idToDelete = cachedFilteredData[index].id;
+                const originalIndex = consumptionData.findIndex(item => item.id === idToDelete);
+                
+                if (originalIndex !== -1) {
+                    const dateKey = consumptionData[originalIndex].date.substring(0, 7);
+                    if (resetPoints[dateKey]) {
+                        delete resetPoints[dateKey];
+                    }
+                    
+                    consumptionData.splice(originalIndex, 1);
+                    updateAvailableYears();
+                    calculateDifferences();
+                    sortDataByDateDesc();
+                    saveDataToStorage();
+                    updateSavedDataTable();
+                    updateCharts();
+                    displayYearlyTotals();
+                }
+            }
+        }
+
+        function toggleEditMode(index, button) {
+            const row = document.getElementById('saved-data-body').querySelector(`tr[data-index="${index}"]`);
+            if (!row) return;
+            
+            if (currentlyEditingRow !== null && currentlyEditingRow !== index) {
+                saveRowEdit(currentlyEditingRow);
+                disableEditMode(currentlyEditingRow);
+            }
+            
+            if (button.textContent === '🔒') {
+                button.textContent = '🔓';
+                button.classList.add('unlocked');
+                row.classList.add('editable-row');
+                
+                const item = cachedFilteredData[index];
+                
+                row.querySelector('.date-cell').innerHTML = `<input type="date" value="${item.date}" class="date-input">`;
+                row.querySelector('.gas-cell').innerHTML = `<input type="number" step="0.01" value="${item.gas}" class="gas-input">`;
+                row.querySelector('.water-cell').innerHTML = `<input type="number" step="0.01" value="${item.water}" class="water-input">`;
+                row.querySelector('.elecLow-cell').innerHTML = `<input type="number" step="0.01" value="${item.elecLow}" class="elecLow-input">`;
+                row.querySelector('.elecHigh-cell').innerHTML = `<input type="number" step="0.01" value="${item.elecHigh}" class="elecHigh-input">`;
+                row.querySelector('.gasDiff-cell').innerHTML = `<input type="number" step="0.01" value="${item.gasDiff || 0}" class="gasDiff-input">`;
+                row.querySelector('.waterDiff-cell').innerHTML = `<input type="number" step="0.01" value="${item.waterDiff || 0}" class="waterDiff-input">`;
+                row.querySelector('.elecLowDiff-cell').innerHTML = `<input type="number" step="0.01" value="${item.elecLowDiff || 0}" class="elecLowDiff-input">`;
+                row.querySelector('.elecHighDiff-cell').innerHTML = `<input type="number" step="0.01" value="${item.elecHighDiff || 0}" class="elecHighDiff-input">`;
+                
+                currentlyEditingRow = index;
+            } else {
+                saveRowEdit(index);
+                disableEditMode(index);
+                currentlyEditingRow = null;
+            }
+        }
+
+        function disableEditMode(index) {
+            const row = document.getElementById('saved-data-body').querySelector(`tr[data-index="${index}"]`);
+            if (!row) return;
+            
+            const button = row.querySelector('.edit-btn');
+            button.textContent = '🔒';
+            button.classList.remove('unlocked');
+            row.classList.remove('editable-row');
+            
+            const item = cachedFilteredData[index];
+            row.querySelector('.date-cell').textContent = item.date;
+            row.querySelector('.gas-cell').textContent = item.gas;
+            row.querySelector('.water-cell').textContent = item.water;
+            row.querySelector('.elecLow-cell').textContent = item.elecLow;
+            row.querySelector('.elecHigh-cell').textContent = item.elecHigh;
+            row.querySelector('.gasDiff-cell').textContent = item.gasDiff || '-';
+            row.querySelector('.waterDiff-cell').textContent = item.waterDiff || '-';
+            row.querySelector('.elecLowDiff-cell').textContent = item.elecLowDiff || '-';
+            row.querySelector('.elecHighDiff-cell').textContent = item.elecHighDiff || '-';
+        }
+
+        function saveRowEdit(index) {
+            const row = document.getElementById('saved-data-body').querySelector(`tr[data-index="${index}"]`);
+            if (!row) return;
+            
+            const dateInput = row.querySelector('.date-input');
+            const gasInput = row.querySelector('.gas-input');
+            const waterInput = row.querySelector('.water-input');
+            const elecLowInput = row.querySelector('.elecLow-input');
+            const elecHighInput = row.querySelector('.elecHigh-input');
+            const gasDiffInput = row.querySelector('.gasDiff-input');
+            const waterDiffInput = row.querySelector('.waterDiff-input');
+            const elecLowDiffInput = row.querySelector('.elecLowDiff-input');
+            const elecHighDiffInput = row.querySelector('.elecHighDiff-input');
+            
+            const updatedItem = {
+                date: dateInput.value,
+                gas: parseFloat(gasInput.value) || 0,
+                water: parseFloat(waterInput.value) || 0,
+                elecLow: parseFloat(elecLowInput.value) || 0,
+                elecHigh: parseFloat(elecHighInput.value) || 0,
+                gasDiff: parseFloat(gasDiffInput.value) || 0,
+                waterDiff: parseFloat(waterDiffInput.value) || 0,
+                elecLowDiff: parseFloat(elecLowDiffInput.value) || 0,
+                elecHighDiff: parseFloat(elecHighDiffInput.value) || 0,
+                id: cachedFilteredData[index].id
+            };
+            
+            const originalIndex = consumptionData.findIndex(item => item.id === cachedFilteredData[index].id);
+            
+            if (originalIndex !== -1) {
+                consumptionData[originalIndex] = updatedItem;
+                cachedFilteredData[index] = updatedItem;
+                
+                const oldDateKey = cachedFilteredData[index].date.substring(0, 7);
+                const newDateKey = updatedItem.date.substring(0, 7);
+                
+                if (oldDateKey !== newDateKey && resetPoints[oldDateKey]) {
+                    resetPoints[newDateKey] = true;
+                    delete resetPoints[oldDateKey];
+                }
+                
+                calculateDifferences();
+                sortDataByDateDesc();
+                saveDataToStorage();
+                updateSavedDataTable();
+                updateCharts();
+                displayYearlyTotals();
+            }
+        }
+
+        function clearForm() {
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('date').value = today;
+            document.getElementById('gas').value = '';
+            document.getElementById('water').value = '';
+            document.getElementById('elec-low').value = '';
+            document.getElementById('elec-high').value = '';
+            document.getElementById('error-message').textContent = '';
+        }
+
+        function exportData() {
+            const dataToExport = {
+                consumptionData: consumptionData,
+                resetPoints: resetPoints
+            };
+            
+            const dataStr = JSON.stringify(dataToExport, null, 2);
+            const blob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'spotreba_energii_' + new Date().toISOString().split('T')[0] + '.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function importData(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const importedData = JSON.parse(e.target.result);
+                    
+                    if (!Array.isArray(importedData.consumptionData) || !importedData.resetPoints) {
+                        throw new Error('Neplatný formát dat - očekává se objekt s consumptionData a resetPoints');
+                    }
+                    
+                    consumptionData = importedData.consumptionData.map(item => {
+                        return item.id ? item : {...item, id: Date.now() + Math.floor(Math.random() * 1000)};
+                    });
+                    resetPoints = importedData.resetPoints || {};
+                    
+                    updateAvailableYears();
+                    calculateDifferences();
+                    sortDataByDateDesc();
+                    saveDataToStorage();
+                    updateSavedDataTable();
+                    updateCharts();
+                    displayYearlyTotals();
+                    
+                    alert(`Data úspěšně importována (${consumptionData.length} záznamů)`);
+                } catch (error) {
+                    alert('Chyba při importu dat: ' + error.message);
+                }
+                event.target.value = '';
+            };
+            reader.readAsText(file);
+        }
+
+        function init() {
+            updateSavedDataTable();
+            createCharts();
+        }
+
+        function createCharts() {
+            if (!document.getElementById('charts-container')) {
+                const div = document.createElement('div');
+                div.id = 'charts-container';
+                document.querySelector('.saved-data').insertBefore(div, document.getElementById('yearly-totals'));
+            }
+            updateCharts();
+        }
+
+        function updateCharts() {
+            if (consumptionData.length === 0) {
+                return;
+            }
+            
+            const dataForCharts = cachedSelectedYear === 'all' 
+                ? [...consumptionData] 
+                : consumptionData.filter(item => item.date.startsWith(cachedSelectedYear));
+            
+            if (dataForCharts.length === 0) {
+                return;
+            }
+            
+            const ctxGas = createOrGetCanvas('gas-chart', 'Spotřeba plynu (m³)');
+            const ctxWater = createOrGetCanvas('water-chart', 'Spotřeba vody (m³)');
+            const ctxElecLow = createOrGetCanvas('elec-low-chart', 'Spotřeba elektřiny - nízký tarif (kWh)');
+            const ctxElecHigh = createOrGetCanvas('elec-high-chart', 'Spotřeba elektřiny - vysoký tarif (kWh)');
+
+            const sortedData = [...dataForCharts].sort((a, b) => new Date(a.date) - new Date(b.date));
+            const labels = sortedData.map(entry => entry.date);
+            
+            updateChart(ctxGas, labels, sortedData.map(entry => entry.gasDiff || 0), 'Plyn (m³)');
+            updateChart(ctxWater, labels, sortedData.map(entry => entry.waterDiff || 0), 'Voda (m³)');
+            updateChart(ctxElecLow, labels, sortedData.map(entry => entry.elecLowDiff || 0), 'Elektřina NT (kWh)');
+            updateChart(ctxElecHigh, labels, sortedData.map(entry => entry.elecHighDiff || 0), 'Elektřina VT (kWh)');
+        }
+
+        function createOrGetCanvas(id, title) {
+            let canvas = document.getElementById(id);
+            
+            if (!canvas) {
+                const chartWrapper = document.createElement('div');
+                chartWrapper.className = 'chart-wrapper';
+                
+                const chartTitle = document.createElement('h3');
+                chartTitle.textContent = title;
+                
+                canvas = document.createElement('canvas');
+                canvas.id = id;
+                
+                chartWrapper.appendChild(chartTitle);
+                chartWrapper.appendChild(canvas);
+                
+                document.getElementById('charts-container').appendChild(chartWrapper);
+            }
+            
+            return canvas;
+        }
+
+        function updateChart(canvas, labels, data, label) {
+            if (charts[canvas.id]) {
+                charts[canvas.id].destroy();
+            }
+            
+            const ctx = canvas.getContext('2d');
+            charts[canvas.id] = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: label,
+                        data: data,
+                        borderColor: 'rgb(75, 192, 192)',
+                        tension: 0.1,
+                        fill: false
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+
+        function displayYearlyTotals() {
+            const yearlyTotalsDiv = document.getElementById('yearly-totals');
+            yearlyTotalsDiv.innerHTML = '';
+            
+            if (consumptionData.length === 0) {
+                yearlyTotalsDiv.innerHTML = '<p>Žádná data k zobrazení</p>';
+                return;
+            }
+            
+            let yearsToDisplay = cachedSelectedYear === 'all' 
+                ? [...new Set(consumptionData.map(item => item.date.split('-')[0]))].sort().reverse()
+                : [cachedSelectedYear];
+            
+            yearsToDisplay.forEach(year => {
+                const yearData = cachedSelectedYear === 'all' 
+                    ? consumptionData.filter(item => item.date.startsWith(year))
+                    : cachedFilteredData;
+                
+                if (yearData.length === 0) return;
+                
+                const div = document.createElement('div');
+                div.innerHTML = `<h3>Roční součty ${year}</h3>`;
+                
+                const table = document.createElement('table');
+                table.innerHTML = `
+                    <thead>
+                        <tr>
+                            <th>Energie</th>
+                            <th>Celkem</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Plyn (m³)</td>
+                            <td>${calculateYearlyDiff(yearData, 'gasDiff')}</td>
+                        </tr>
+                        <tr>
+                            <td>Voda (m³)</td>
+                            <td>${calculateYearlyDiff(yearData, 'waterDiff')}</td>
+                        </tr>
+                        <tr>
+                            <td>Elektřina NT (kWh)</td>
+                            <td>${calculateYearlyDiff(yearData, 'elecLowDiff')}</td>
+                        </tr>
+                        <tr>
+                            <td>Elektřina VT (kWh)</td>
+                            <td>${calculateYearlyDiff(yearData, 'elecHighDiff')}</td>
+                        </tr>
+                    </tbody>
+                `;
+                
+                div.appendChild(table);
+                yearlyTotalsDiv.appendChild(div);
+            });
+        }
+
+        function calculateYearlyDiff(yearData, property) {
+            return yearData.reduce((sum, entry) => {
+                return sum + (parseFloat(entry[property]) || 0);
+            }, 0).toFixed(2);
+        }
+    </script>
+</body>
+</html>
